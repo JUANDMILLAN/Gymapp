@@ -320,7 +320,6 @@ public class VentanaSpartanosGUI extends JFrame {
      * Muestra los datos de los clientes en la tabla {@code table1}.
      */
     public void mostrarDatos() {
-        modeloSpartanos.eliminarClientesVencidos(); // Elimina antes de mostrar datos
         DefaultTableModel modelo = new DefaultTableModel();
         modelo.setRowCount(0);
         modelo.addColumn("ID");
