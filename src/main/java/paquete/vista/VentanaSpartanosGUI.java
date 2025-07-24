@@ -19,7 +19,10 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.io.*;
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Date;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 public class VentanaSpartanosGUI extends JFrame {
@@ -42,9 +45,10 @@ public class VentanaSpartanosGUI extends JFrame {
     private JButton importarExcelButton;
     private JButton borradorcolumn;
     private JButton exportarExcelButton;
+    private int filaSeleccionada = -1;
 
 
-    int filas = 0;
+
 
     ModeloSpartanos modeloSpartanos = new ModeloSpartanos();
     /**
@@ -73,6 +77,52 @@ public class VentanaSpartanosGUI extends JFrame {
         mostrarDatos(); // Muestra los datos de los clientes en la tabla
         cargarDatos(); // Actualiza las tarjetas de clientes
         actualizarTarjetasClientes();
+
+
+        // ⬇️ AQUI PEGAS EL RENDERER
+        table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                                                           boolean isSelected, boolean hasFocus, int row, int column) {
+
+                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                c.setForeground(Color.BLACK);
+
+                if (!isSelected) {
+                    try {
+                        if (row < table.getRowCount() && 4 < table.getColumnCount()) {
+                            Object alertaObj = table.getValueAt(row, 4);
+                            String alerta = alertaObj != null ? alertaObj.toString() : "";
+
+                            if (alerta.contains("VENCIDO")) {
+                                c.setBackground(Color.RED);
+                            } else if (alerta.contains("Faltan")) {
+                                Pattern pattern = Pattern.compile("Faltan\\s+(\\d+)");
+                                Matcher matcher = pattern.matcher(alerta);
+                                if (matcher.find()) {
+                                    int dias = Integer.parseInt(matcher.group(1));
+                                    if (dias <= 5) {
+                                        c.setBackground(Color.YELLOW);
+                                    } else {
+                                        c.setBackground(Color.WHITE);
+                                    }
+                                } else {
+                                    c.setBackground(Color.WHITE);
+                                }
+                            } else {
+                                c.setBackground(Color.WHITE);
+                            }
+                        } else {
+                            c.setBackground(Color.WHITE);
+                        }
+                    } catch (Exception e) {
+                        c.setBackground(Color.WHITE);
+                    }
+                }
+
+                return c;
+            }
+        });
 
         // Configuración del botón para agregar un cliente
         agregarButton.addActionListener(new ActionListener() {
@@ -115,41 +165,42 @@ public class VentanaSpartanosGUI extends JFrame {
         editarButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                String textoId = textField1.getText().trim();
+                int filaVista = table.getSelectedRow();
 
-                // Validar si se ha seleccionado un cliente
-                if (textoId.isEmpty()) {
-                    JOptionPane.showMessageDialog(null, "Por favor, seleccione un cliente antes de editar.");
-                    return;
-                }
+                if (filaVista >= 0) {
+                    // Convertimos el índice de la vista al del modelo
+                    int filaModelo = table.convertRowIndexToModel(filaVista);
 
-                try {
-                    int id = Integer.parseInt(textoId);
+                    try {
+                        String textoId = textField1.getText().trim();
 
-                    // Obtener los demás campos
-                    String nombre = textField2.getText().trim();
-                    String aria = textField3.getText().trim();
-                    String fechaVencimiento = textField4.getText().trim();  // Este se recalcula, pero lo incluimos por compatibilidad
-                    String alerta = textField5.getText().trim();             // Este también
-                    int diasPagados = Integer.parseInt(textField6.getText().trim());
+                        if (textoId.isEmpty()) {
+                            JOptionPane.showMessageDialog(null, "Por favor, seleccione un cliente antes de editar.");
+                            return;
+                        }
 
-                    // Crear el objeto Usuario y actualizarlo
-                    Usuario usuario = new Usuario(id, nombre, aria, fechaVencimiento, alerta, diasPagados);
-                    modeloSpartanos.actualizar(usuario);
+                        int id = Integer.parseInt(textoId);
+                        String nombre = textField2.getText().trim();
+                        String aria = textField3.getText().trim();
+                        String fechaVencimiento = textField4.getText().trim(); // ← no lo usas en la lógica, pero lo pasas
+                        String alerta = textField5.getText().trim();           // ← también es calculado en `actualizar`
+                        int diasPagados = Integer.parseInt(textField6.getText().trim());
 
-                    clear(); // Limpiar los campos de texto
-                    mostrarDatos(); // Actualizar la tabla
-                    cargarDatos(); // Actualizar tarjetas
-                    actualizarTarjetasClientes();
+                        Usuario usuario = new Usuario(id, nombre, aria, fechaVencimiento, alerta, diasPagados);
+                        modeloSpartanos.actualizar(usuario);
 
-                } catch (NumberFormatException ex) {
-                    JOptionPane.showMessageDialog(null, "ID o Días pagados no válidos. Asegúrese de que sean números enteros.");
-                } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(null, "Error al editar el cliente: " + ex.getMessage());
+                        clear();
+                        cargarDatos(); // basta con esto; mostrarDatos() y actualizarTarjetasClientes() si es necesario
+                    } catch (NumberFormatException ex) {
+                        JOptionPane.showMessageDialog(null, "ID o Días pagados no válidos. Asegúrese de que sean números enteros.");
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(null, "Error al editar el cliente: " + ex.getMessage());
+                    }
+                } else {
+                    JOptionPane.showMessageDialog(null, "Por favor, seleccione una fila válida para editar.");
                 }
             }
         });
-
 
         // Configuración del botón para eliminar un cliente
         eliminarButton.addActionListener(new ActionListener() {
@@ -165,13 +216,25 @@ public class VentanaSpartanosGUI extends JFrame {
                 try {
                     int id = Integer.parseInt(textoId);
 
-                    // Confirmación opcional
+                    // Confirmación
                     int confirm = JOptionPane.showConfirmDialog(null, "¿Estás seguro de eliminar este cliente?", "Confirmar eliminación", JOptionPane.YES_NO_OPTION);
                     if (confirm == JOptionPane.YES_OPTION) {
+                        // 1. Eliminar de la base de datos
                         modeloSpartanos.eliminar(id);
-                        clear(); // Limpiar los campos de texto
-                        mostrarDatos(); // Actualizar los datos en la tabla
-                        cargarDatos(); // Actualizar las tarjetas de clientes
+
+                        // 2. Limpiar campos
+                        clear();
+
+                        // 3. Refrescar la tabla correctamente
+                        DefaultTableModel modelo = (DefaultTableModel) table.getModel();
+                        modelo.setRowCount(0); // ⚠️ Limpia completamente antes de recargar
+
+                        mostrarDatos();             // 4. Cargar los datos desde la BD
+                        table.revalidate();         // 5. Revalidar tabla para asegurar el renderizado
+                        table.repaint();            // 6. Forzar redibujado
+
+                        // 7. Refrescar tarjetas/resúmenes
+                        cargarDatos();
                         actualizarTarjetasClientes();
                     }
 
@@ -180,6 +243,7 @@ public class VentanaSpartanosGUI extends JFrame {
                 }
             }
         });
+
 
         borradorcolumn.addActionListener(new ActionListener() {
             @Override
@@ -198,19 +262,21 @@ public class VentanaSpartanosGUI extends JFrame {
         table.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                int selecfila = table.getSelectedRow();
-                if (selecfila >= 0) {
-                    // Llenar los campos de texto con los datos del cliente seleccionado
-                    textField1.setText(table.getValueAt(selecfila, 0).toString());
-                    textField2.setText((String) table.getValueAt(selecfila, 1));
-                    textField3.setText((String) table.getValueAt(selecfila, 2));
-                    textField4.setText((String) table.getValueAt(selecfila, 3));
-                    textField5.setText((String) table.getValueAt(selecfila, 4));
-                    textField6.setText(table.getValueAt(selecfila, 5).toString());
-                    filas = selecfila;
+                int filaVista = table.getSelectedRow();
+                if (filaVista >= 0) {
+                    int filaModelo = table.convertRowIndexToModel(filaVista);
+                    filaSeleccionada = filaModelo; // ← esta variable debe ser global
+
+                    textField1.setText(table.getModel().getValueAt(filaModelo, 0).toString());
+                    textField2.setText(table.getModel().getValueAt(filaModelo, 1).toString());
+                    textField3.setText(table.getModel().getValueAt(filaModelo, 2).toString());
+                    textField4.setText(table.getModel().getValueAt(filaModelo, 3).toString());
+                    textField5.setText(table.getModel().getValueAt(filaModelo, 4).toString());
+                    textField6.setText(table.getModel().getValueAt(filaModelo, 5).toString());
                 }
             }
         });
+
         Buscaritem.addKeyListener(new KeyAdapter() {
             @Override
             public void keyReleased(KeyEvent e) {
@@ -254,7 +320,9 @@ public class VentanaSpartanosGUI extends JFrame {
      * Muestra los datos de los clientes en la tabla {@code table1}.
      */
     public void mostrarDatos() {
+        modeloSpartanos.eliminarClientesVencidos(); // Elimina antes de mostrar datos
         DefaultTableModel modelo = new DefaultTableModel();
+        modelo.setRowCount(0);
         modelo.addColumn("ID");
         modelo.addColumn("Nombre");
         modelo.addColumn("Fecha de pago");
@@ -341,37 +409,54 @@ public class VentanaSpartanosGUI extends JFrame {
                  Workbook workbook = new XSSFWorkbook(fis)) {
 
                 Sheet hoja = workbook.getSheetAt(0);
-                for (Row fila : hoja) {
-                    if (fila.getRowNum() == 0) continue; // Saltar encabezados
 
-                    String nombre = fila.getCell(0).getStringCellValue();
+                for (Row fila : hoja) {
+                    if (fila.getRowNum() == 0) continue; // Saltar encabezado
+
+                    // Validar que las celdas requeridas existan
+                    if (fila.getCell(0) == null || fila.getCell(1) == null || fila.getCell(2) == null) continue;
+
+                    String nombre;
+                    try {
+                        nombre = fila.getCell(0).getStringCellValue();
+                    } catch (Exception e) {
+                        continue; // Si la celda no es texto o está vacía, omitir la fila
+                    }
+
+                    // Validar y obtener fecha
                     Cell cellFecha = fila.getCell(1);
                     Date fechaAria;
                     if (cellFecha.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cellFecha)) {
                         fechaAria = cellFecha.getDateCellValue();
                     } else {
-                        // Si no es una fecha válida, omitir esta fila
+                        continue; // Fecha inválida
+                    }
+
+                    // Validar y obtener días pagados
+                    Cell cellDias = fila.getCell(2);
+                    int diasPagados;
+                    try {
+                        diasPagados = (int) cellDias.getNumericCellValue();
+                    } catch (Exception e) {
                         continue;
                     }
+
+                    // Formatear fechas
                     SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-                    String aria = sdf.format(fechaAria); // Convertimos la fecha a texto como "yyyy-MM-dd"
+                    String aria = sdf.format(fechaAria);
 
-                    int diasPagados = (int) fila.getCell(2).getNumericCellValue();
+                    // Calcular vencimiento
+                    Calendar cal = Calendar.getInstance();
+                    cal.setTime(new Date());
+                    cal.add(Calendar.DAY_OF_YEAR, diasPagados);
+                    Date fechaVencimiento = cal.getTime();
 
-                    // Calcular fecha vencimiento
-                    java.util.Date hoy = new java.util.Date();
-                    java.util.Calendar cal = java.util.Calendar.getInstance();
-                    cal.setTime(hoy);
-                    cal.add(java.util.Calendar.DAY_OF_YEAR, diasPagados);
-                    java.util.Date fechaVencimiento = cal.getTime();
+                    String fechaVencStr = sdf.format(fechaVencimiento);
 
-                    SimpleDateFormat sdfVenc = new SimpleDateFormat("yyyy-MM-dd");
-                    String fechaVencStr = sdfVenc.format(fechaVencimiento);
-
-                    // Calcular alerta
-                    long diff = (fechaVencimiento.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24);
+                    long diff = (fechaVencimiento.getTime() - System.currentTimeMillis()) / (1000 * 60 * 60 * 24);
                     String alerta = (diff <= 0) ? "VENCIDO" : "Faltan " + diff + " días";
 
+                    // Agregar al modelo
                     Usuario usuario = new Usuario(0, nombre, aria, fechaVencStr, alerta, diasPagados);
                     modeloSpartanos.agregar(usuario);
                 }
@@ -387,6 +472,7 @@ public class VentanaSpartanosGUI extends JFrame {
             }
         }
     }
+
     public void filtrarTabla(String busqueda) {
         DefaultTableModel modelo = (DefaultTableModel) table.getModel();
         TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(modelo);
@@ -415,40 +501,7 @@ public class VentanaSpartanosGUI extends JFrame {
                 modelo.addRow(fila);
             }
 
-            // ⬇️ AQUI PEGAS EL RENDERER
-            table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
-                @Override
-                public Component getTableCellRendererComponent(JTable table, Object value,
-                                                               boolean isSelected, boolean hasFocus, int row, int column) {
 
-                    Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                    c.setForeground(Color.BLACK);
-
-                    // Solo aplicar colores si no está seleccionada (para no interferir con selección)
-                    if (!isSelected) {
-                        String alerta = table.getValueAt(row, 4).toString(); // Columna alerta
-
-                        if (alerta.contains("VENCIDO")) {
-                            c.setBackground(Color.RED);
-                        } else if (alerta.contains("Faltan")) {
-                            try {
-                                int dias = Integer.parseInt(alerta.split(" ")[1]);
-                                if (dias <= 5) {
-                                    c.setBackground(Color.YELLOW);
-                                } else {
-                                    c.setBackground(Color.WHITE);
-                                }
-                            } catch (NumberFormatException e) {
-                                c.setBackground(Color.WHITE);
-                            }
-                        } else {
-                            c.setBackground(Color.WHITE);
-                        }
-                    }
-
-                    return c;
-                }
-            });
 
         } catch (SQLException e) {
             e.printStackTrace();
@@ -494,6 +547,7 @@ public class VentanaSpartanosGUI extends JFrame {
 
 
     public void actualizarTarjetasClientes() {
+
         int totalSpartanos = table.getRowCount();
         labelspartanos.setText(String.valueOf(totalSpartanos));
 
@@ -507,6 +561,7 @@ public class VentanaSpartanosGUI extends JFrame {
 
 
     }
+
 
 
 
