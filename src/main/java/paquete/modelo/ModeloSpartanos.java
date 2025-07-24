@@ -6,10 +6,7 @@ import paquete.modelo.Usuario;
 
 import java.awt.*;
 import javax.swing.*;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -84,6 +81,21 @@ public class ModeloSpartanos {
                 e.printStackTrace();
             }
         }
+    }
+
+    public boolean existeUsuario(String nombre) {
+        String sql = "SELECT COUNT(*) FROM spartanos WHERE nombre = ?";
+        try (Connection con = new ConexionBD().getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, nombre);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                return rs.getInt(1) > 0;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
     }
 
 

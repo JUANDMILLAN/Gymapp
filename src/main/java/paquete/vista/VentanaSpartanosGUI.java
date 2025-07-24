@@ -130,11 +130,10 @@ public class VentanaSpartanosGUI extends JFrame {
             public void actionPerformed(ActionEvent e) {
                 String nombre = textField2.getText().trim();
                 String aria = textField3.getText().trim();
-                String fechaVencimiento = textField4.getText().trim(); // Este se recalcula internamente, pero lo pedimos igual si lo estás usando
-                String alerta = textField5.getText().trim();           // Igual, pero obligatorio si se usa
+                String fechaVencimiento = textField4.getText().trim();
+                String alerta = textField5.getText().trim();
                 String textoDiasPagados = textField6.getText().trim();
 
-                // Validaciones básicas
                 if (nombre.isEmpty() || aria.isEmpty() || textoDiasPagados.isEmpty()) {
                     JOptionPane.showMessageDialog(null, "Por favor, complete todos los campos obligatorios: Nombre, Aria y Días Pagados.");
                     return;
@@ -143,22 +142,31 @@ public class VentanaSpartanosGUI extends JFrame {
                 try {
                     int diasPagados = Integer.parseInt(textoDiasPagados);
 
-                    // Crear un nuevo usuario (el ID es 0 porque se autogenera en la base de datos)
+                    // ⚠️ VERIFICAR SI YA EXISTE
+                    if (modeloSpartanos.existeUsuario(nombre)) {
+                        JOptionPane.showMessageDialog(null, "Este cliente ya existe. Por favor, edítalo en lugar de agregar uno nuevo.");
+                        actualizarTarjetasClientes(); // Solo actualiza la tarjeta, sin tocar la tabla
+                        return;
+                    }
+
+
+
                     Usuario usuario = new Usuario(0, nombre, aria, fechaVencimiento, alerta, diasPagados);
                     modeloSpartanos.agregar(usuario);
 
-                    clear(); // Limpiar los campos de texto
-                    mostrarDatos(); // Actualizar los datos en la tabla
-                    cargarDatos();
-                    actualizarTarjetasClientes();
+                    clear();
+                    mostrarDatos();
+
 
                 } catch (NumberFormatException ex) {
                     JOptionPane.showMessageDialog(null, "El campo 'Días Pagados' debe ser un número válido.");
                 } catch (Exception ex) {
+                    ex.printStackTrace(); // 👈 esto ayuda a depurar en consola
                     JOptionPane.showMessageDialog(null, "Ocurrió un error al agregar el cliente: " + ex.getMessage());
                 }
             }
         });
+
 
 
         // Configuración del botón para editar un cliente
@@ -320,37 +328,64 @@ public class VentanaSpartanosGUI extends JFrame {
      * Muestra los datos de los clientes en la tabla {@code table1}.
      */
     public void mostrarDatos() {
-        DefaultTableModel modelo = new DefaultTableModel();
-        modelo.setRowCount(0);
-        modelo.addColumn("ID");
-        modelo.addColumn("Nombre");
-        modelo.addColumn("Fecha de pago");
-        modelo.addColumn("Fecha de vencimiento");
-        modelo.addColumn("Alerta");
-        modelo.addColumn("Días pagados");
+        // Crear el modelo fuera del EDT puede causar problemas
+        SwingUtilities.invokeLater(() -> {
+            try {
+                // 1. Desactivar temporalmente el ordenamiento
+                TableRowSorter<DefaultTableModel> sorter = null;
+                if (table.getRowSorter() != null) {
+                    sorter = (TableRowSorter<DefaultTableModel>) table.getRowSorter();
+                    table.setRowSorter(null);
+                }
 
-        table.setModel(modelo);
+                // 2. Crear nuevo modelo
+                DefaultTableModel modelo = new DefaultTableModel() {
+                    @Override
+                    public boolean isCellEditable(int row, int column) {
+                        return false; // Hacer que todas las celdas sean no editables
+                    }
+                };
 
-        // Conexión a la base de datos para obtener los datos de los clientes
-        Connection con = new ConexionBD().getConnection();
-        try {
-            Statement st = con.createStatement();
-            String query = "SELECT * FROM spartanos";
-            ResultSet rs = st.executeQuery(query);
-            while (rs.next()) {
-                Object[] fila = new Object[6];
-                fila[0] = rs.getInt("id");
-                fila[1] = rs.getString("nombre");
-                fila[2] = rs.getString("aria");
-                fila[3] = rs.getString("fecha_vencimiento");
-                fila[4] = rs.getString("alerta");
-                fila[5] = rs.getString("dias_pagados");
-                modelo.addRow(fila);
+                // 3. Configurar columnas
+                modelo.setColumnIdentifiers(new Object[]{"ID", "Nombre", "Fecha de pago",
+                        "Fecha de vencimiento", "Alerta", "Días pagados"});
+
+                // 4. Obtener datos de la base de datos
+                Connection con = new ConexionBD().getConnection();
+                try (Statement st = con.createStatement();
+                     ResultSet rs = st.executeQuery("SELECT * FROM spartanos")) {
+
+                    while (rs.next()) {
+                        Object[] fila = new Object[6];
+                        fila[0] = rs.getInt("id");
+                        fila[1] = rs.getString("nombre");
+                        fila[2] = rs.getString("aria");
+                        fila[3] = rs.getString("fecha_vencimiento");
+                        fila[4] = rs.getString("alerta");
+                        fila[5] = rs.getString("dias_pagados");
+
+                        // 5. Agregar fila al modelo
+                        modelo.addRow(fila);
+                    }
+                }
+
+                // 6. Asignar el modelo a la tabla
+                table.setModel(modelo);
+
+                // 7. Restaurar el ordenamiento si existía
+                if (sorter != null) {
+                    sorter.setModel(modelo);
+                    table.setRowSorter(sorter);
+                }
+
+                // 8. Actualizar las tarjetas de resumen
+                actualizarTarjetasClientes();
+
+            } catch (SQLException e) {
+                e.printStackTrace();
+                JOptionPane.showMessageDialog(null, "Error al mostrar los datos: " + e.getMessage());
             }
-        } catch (SQLException e) {
-            e.printStackTrace();
-            JOptionPane.showMessageDialog(null, "Error al mostrar los datos: " + e.getMessage());
-        }
+        });
     }
     public void exportarATablaExcel() {
         JFileChooser fileChooser = new JFileChooser();
@@ -507,6 +542,25 @@ public class VentanaSpartanosGUI extends JFrame {
             JOptionPane.showMessageDialog(null, "Error al mostrar los datos: " + e.getMessage());
         }
     }
+    public int contarTodosLosSpartanos() {
+        int total = 0;
+        String sql = "SELECT COUNT(*) FROM spartanos";
+
+        try (Connection con = new ConexionBD().getConnection();
+             Statement st = con.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+
+            if (rs.next()) {
+                total = rs.getInt(1);
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return total;
+    }
+
     public int contarSpartanosVencidos() {
         int totalVencidos = 0;
         String sql = "SELECT COUNT(*) FROM spartanos WHERE alerta LIKE '%VENCIDO%'";
@@ -546,20 +600,16 @@ public class VentanaSpartanosGUI extends JFrame {
 
 
     public void actualizarTarjetasClientes() {
-
-        int totalSpartanos = table.getRowCount();
+        int totalSpartanos = contarTodosLosSpartanos (); // ✅ desde BD, sin filtro
         labelspartanos.setText(String.valueOf(totalSpartanos));
 
         int svencidos = contarSpartanosVencidos();
-        vencidos.setText(String.valueOf(svencidos)); // Asegúrate de tener ese JLabel en tu GUI
+        vencidos.setText(String.valueOf(svencidos));
 
         int sregla = contarSpartanosEnRegla();
-        regla.setText(String.valueOf(sregla)); // Asegúrate de tener ese JLabel en tu GUI
-
-
-
-
+        regla.setText(String.valueOf(sregla));
     }
+
 
 
 
